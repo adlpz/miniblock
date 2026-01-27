@@ -275,6 +275,30 @@ function getBlockScreenStyles() {
       text-align: center;
       padding: 12px;
     }
+
+    /* First-bypass tooltip styles */
+    #miniblock-tooltip {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--mb-text);
+      color: var(--mb-bg);
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      font-size: 14px;
+      z-index: 2147483647;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      max-width: 90vw;
+      text-align: center;
+    }
+
+    #miniblock-tooltip.visible {
+      opacity: 1;
+    }
   `;
 }
 
@@ -581,15 +605,112 @@ function attemptBypass(enteredText, blockedHost, errorElement) {
     }).then(() => {
       // Remove block screen after bypass is registered
       removeBlockScreen();
+      // Show first-bypass tooltip if this is the first time
+      showFirstBypassTooltip();
     }).catch((error) => {
       console.error('Miniblock: Failed to register bypass:', error);
       // Still remove block screen even if message fails
       removeBlockScreen();
+      // Still try to show tooltip
+      showFirstBypassTooltip();
     });
   } else {
     // Show error
     errorElement.classList.add('visible');
   }
+}
+
+/**
+ * Show a tooltip on first bypass to inform user that bypass expires when tab closes
+ */
+async function showFirstBypassTooltip() {
+  try {
+    // Check if tooltip has already been shown
+    const response = await chrome.runtime.sendMessage({ type: 'CHECK_FIRST_BYPASS_SHOWN' });
+    if (response.shown) {
+      return;
+    }
+
+    // Mark as shown before displaying (to prevent race conditions)
+    await chrome.runtime.sendMessage({ type: 'SET_FIRST_BYPASS_SHOWN' });
+
+    // Create and show the tooltip
+    const tooltip = document.createElement('div');
+    tooltip.id = 'miniblock-tooltip';
+    tooltip.textContent = 'Bypass expires when you close this tab';
+    document.body.appendChild(tooltip);
+
+    // Create styles if they don't exist (they were removed with block screen)
+    let styleElement = document.getElementById('miniblock-tooltip-styles');
+    if (!styleElement) {
+      styleElement = document.createElement('style');
+      styleElement.id = 'miniblock-tooltip-styles';
+      styleElement.textContent = getTooltipStyles();
+      document.head.appendChild(styleElement);
+    }
+
+    // Trigger fade in
+    requestAnimationFrame(() => {
+      tooltip.classList.add('visible');
+    });
+
+    // Auto-dismiss after 4 seconds
+    setTimeout(() => {
+      tooltip.classList.remove('visible');
+      // Remove element after fade out transition
+      setTimeout(() => {
+        tooltip.remove();
+        if (styleElement) {
+          styleElement.remove();
+        }
+      }, 300);
+    }, 4000);
+  } catch (error) {
+    console.error('Miniblock: Error showing first bypass tooltip:', error);
+  }
+}
+
+/**
+ * Get CSS styles for the tooltip (standalone, for use after block screen is removed)
+ * @returns {string} CSS styles
+ */
+function getTooltipStyles() {
+  return `
+    :root {
+      --mb-bg: #ffffff;
+      --mb-text: #1a1a1a;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --mb-bg: #1a1a1a;
+        --mb-text: #f0f0f0;
+      }
+    }
+
+    #miniblock-tooltip {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--mb-text);
+      color: var(--mb-bg);
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      font-size: 14px;
+      z-index: 2147483647;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      max-width: 90vw;
+      text-align: center;
+    }
+
+    #miniblock-tooltip.visible {
+      opacity: 1;
+    }
+  `;
 }
 
 /**

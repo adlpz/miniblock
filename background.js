@@ -153,6 +153,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 
+  // Check if first bypass tooltip has been shown
+  if (message.type === 'CHECK_FIRST_BYPASS_SHOWN') {
+    chrome.storage.local.get(['firstBypassTooltipShown'], (result) => {
+      sendResponse({ shown: !!result.firstBypassTooltipShown });
+    });
+  }
+
+  // Mark first bypass tooltip as shown
+  if (message.type === 'SET_FIRST_BYPASS_SHOWN') {
+    chrome.storage.local.set({ firstBypassTooltipShown: true }, () => {
+      sendResponse({ success: true });
+    });
+  }
+
   return true; // Keep message channel open for async response
 });
 
