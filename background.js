@@ -6,6 +6,10 @@ importScripts('storage.js');
 
 console.log('Miniblock background service worker loaded');
 
+// Track bypass state per tab: Map<tabId, Set<host>>
+// When a tab has bypassed a host, that host won't be blocked for that tab
+const tabBypasses = new Map();
+
 /**
  * Check if a URL's host matches any blocked host using smart subdomain matching.
  * - If blocklist contains "twitter.com", it blocks twitter.com and all subdomains (mobile.twitter.com)
@@ -63,6 +67,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     const matchedHost = isBlocked(details.url, blockedHosts);
 
     if (matchedHost) {
+      // Check if this tab has an active bypass for this host
+      if (hasActiveBypass(details.tabId, matchedHost)) {
+        console.log('Miniblock: Bypass active for', matchedHost, 'on tab', details.tabId);
+        return;
+      }
+
       // Send message to content script to show block screen
       chrome.tabs.sendMessage(details.tabId, {
         type: 'SHOW_BLOCK_SCREEN',
@@ -85,6 +95,65 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     console.error('Miniblock: Error checking blocked status:', error);
   }
 });
+
+// Listen for messages from content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'BYPASS_GRANTED') {
+    const tabId = sender.tab?.id;
+    const host = message.host?.toLowerCase().trim();
+
+    if (tabId && host) {
+      // Add bypass for this tab
+      if (!tabBypasses.has(tabId)) {
+        tabBypasses.set(tabId, new Set());
+      }
+      tabBypasses.get(tabId).add(host);
+      console.log('Miniblock: Bypass granted for', host, 'on tab', tabId);
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ success: false, error: 'Invalid tab or host' });
+    }
+  }
+  return true; // Keep message channel open for async response
+});
+
+// Clean up bypass state when tab is closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabBypasses.has(tabId)) {
+    console.log('Miniblock: Clearing bypasses for closed tab', tabId);
+    tabBypasses.delete(tabId);
+  }
+});
+
+/**
+ * Check if a tab has an active bypass for a given host
+ * @param {number} tabId - The tab ID
+ * @param {string} host - The host to check (should already be normalized)
+ * @returns {boolean} True if bypass is active
+ */
+function hasActiveBypass(tabId, host) {
+  if (!tabBypasses.has(tabId)) {
+    return false;
+  }
+
+  const bypasses = tabBypasses.get(tabId);
+  const normalizedHost = host.toLowerCase().trim();
+
+  // Check for exact match
+  if (bypasses.has(normalizedHost)) {
+    return true;
+  }
+
+  // Check for subdomain match: if user bypassed "twitter.com",
+  // navigating to "mobile.twitter.com" should also be allowed
+  for (const bypassedHost of bypasses) {
+    if (normalizedHost.endsWith('.' + bypassedHost)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 // Export isBlocked for potential use by other parts of the extension
 self.isBlocked = isBlocked;

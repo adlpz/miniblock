@@ -251,10 +251,21 @@ function attemptBypass(enteredText, blockedHost, errorElement) {
   const normalizedHost = blockedHost.toLowerCase().trim();
 
   if (normalizedInput === normalizedHost) {
-    // Bypass successful - implementation in US-005
+    // Bypass successful - notify background script
     console.log('Miniblock: Bypass successful for:', blockedHost);
-    // For now, just remove the block screen (full bypass tracking in US-005)
-    removeBlockScreen();
+
+    // Send message to background script to register the bypass
+    chrome.runtime.sendMessage({
+      type: 'BYPASS_GRANTED',
+      host: normalizedHost
+    }).then(() => {
+      // Remove block screen after bypass is registered
+      removeBlockScreen();
+    }).catch((error) => {
+      console.error('Miniblock: Failed to register bypass:', error);
+      // Still remove block screen even if message fails
+      removeBlockScreen();
+    });
   } else {
     // Show error
     errorElement.classList.add('visible');
