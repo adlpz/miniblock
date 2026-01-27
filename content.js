@@ -29,6 +29,9 @@ function getBlockScreenStyles() {
       --mb-input-focus: #0066cc;
       --mb-link: #0066cc;
       --mb-error: #cc0000;
+      --mb-success: #2e7d32;
+      --mb-remove-bg: #e0e0e0;
+      --mb-remove-hover: #cc0000;
     }
 
     @media (prefers-color-scheme: dark) {
@@ -41,6 +44,9 @@ function getBlockScreenStyles() {
         --mb-input-focus: #4d9fff;
         --mb-link: #4d9fff;
         --mb-error: #ff6666;
+        --mb-success: #66bb6a;
+        --mb-remove-bg: #444444;
+        --mb-remove-hover: #ef5350;
       }
     }
 
@@ -138,6 +144,137 @@ function getBlockScreenStyles() {
       outline: 2px solid var(--mb-input-focus);
       outline-offset: 2px;
     }
+
+    /* Blocklist panel styles */
+    #miniblock-screen .mb-blocklist-panel {
+      display: none;
+      margin-top: 24px;
+      text-align: left;
+      width: 100%;
+    }
+
+    #miniblock-screen .mb-blocklist-panel.visible {
+      display: block;
+    }
+
+    #miniblock-screen .mb-blocklist-header {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--mb-text-muted);
+      margin-bottom: 12px;
+    }
+
+    #miniblock-screen .mb-add-site-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    #miniblock-screen .mb-add-site-input {
+      flex: 1;
+      padding: 10px 12px;
+      font-size: 14px;
+      background: var(--mb-input-bg);
+      border: 1px solid var(--mb-input-border);
+      border-radius: 6px;
+      color: var(--mb-text);
+      outline: none;
+    }
+
+    #miniblock-screen .mb-add-site-input:focus {
+      border-color: var(--mb-input-focus);
+    }
+
+    #miniblock-screen .mb-add-site-input::placeholder {
+      color: var(--mb-text-muted);
+    }
+
+    #miniblock-screen .mb-add-site-btn {
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: var(--mb-success);
+      color: #fff;
+      transition: opacity 0.15s;
+    }
+
+    #miniblock-screen .mb-add-site-btn:hover {
+      opacity: 0.9;
+    }
+
+    #miniblock-screen .mb-add-site-btn:focus {
+      outline: 2px solid var(--mb-success);
+      outline-offset: 2px;
+    }
+
+    #miniblock-screen .mb-add-site-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #miniblock-screen .mb-add-site-error {
+      color: var(--mb-error);
+      font-size: 12px;
+      min-height: 16px;
+      margin-bottom: 8px;
+    }
+
+    #miniblock-screen .mb-blocklist {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #miniblock-screen .mb-blocklist-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--mb-input-bg);
+      border-radius: 6px;
+    }
+
+    #miniblock-screen .mb-blocklist-item-host {
+      font-size: 14px;
+      word-break: break-all;
+    }
+
+    #miniblock-screen .mb-remove-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: var(--mb-remove-bg);
+      color: var(--mb-text-muted);
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+
+    #miniblock-screen .mb-remove-btn:hover {
+      background: var(--mb-remove-hover);
+      color: #fff;
+    }
+
+    #miniblock-screen .mb-remove-btn:focus {
+      outline: 2px solid var(--mb-remove-hover);
+      outline-offset: 2px;
+    }
+
+    #miniblock-screen .mb-blocklist-empty {
+      font-size: 13px;
+      color: var(--mb-text-muted);
+      text-align: center;
+      padding: 12px;
+    }
   `;
 }
 
@@ -165,6 +302,22 @@ function getBlockScreenHTML(blockedHost) {
       <div class="mb-manage-link">
         <a href="#" id="miniblock-manage-link">Manage blocklist</a>
       </div>
+      <div class="mb-blocklist-panel" id="miniblock-blocklist-panel">
+        <div class="mb-blocklist-header">Blocked Sites</div>
+        <div class="mb-add-site-form">
+          <input
+            type="text"
+            class="mb-add-site-input"
+            id="miniblock-add-site-input"
+            placeholder="Add site (e.g., twitter.com)"
+            autocomplete="off"
+          />
+          <button type="button" class="mb-add-site-btn" id="miniblock-add-site-btn">Add</button>
+        </div>
+        <div class="mb-add-site-error" id="miniblock-add-site-error"></div>
+        <ul class="mb-blocklist" id="miniblock-blocklist"></ul>
+        <div class="mb-blocklist-empty" id="miniblock-blocklist-empty">No blocked sites yet</div>
+      </div>
     </div>
   `;
 }
@@ -178,6 +331,101 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+/**
+ * Validate and normalize a hostname input
+ * @param {string} input - User input for hostname
+ * @returns {{valid: boolean, host: string, error: string}} Validation result
+ */
+function validateHostInput(input) {
+  const trimmed = input.trim().toLowerCase();
+
+  if (!trimmed) {
+    return { valid: false, host: '', error: 'Please enter a site' };
+  }
+
+  // Remove protocol if user included it
+  let host = trimmed
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]; // Remove any path
+
+  // Basic hostname validation
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(host)) {
+    return { valid: false, host: '', error: 'Invalid hostname format' };
+  }
+
+  // Must have at least one dot (e.g., example.com)
+  if (!host.includes('.')) {
+    return { valid: false, host: '', error: 'Enter a full domain (e.g., example.com)' };
+  }
+
+  return { valid: true, host, error: '' };
+}
+
+/**
+ * Render the blocklist in the panel
+ * @param {string[]} sites - Array of blocked hosts
+ */
+function renderBlocklist(sites) {
+  const blocklistEl = document.getElementById('miniblock-blocklist');
+  const emptyEl = document.getElementById('miniblock-blocklist-empty');
+
+  if (!blocklistEl) return;
+
+  blocklistEl.innerHTML = '';
+
+  // Sort sites alphabetically
+  const sortedSites = [...sites].sort((a, b) => a.localeCompare(b));
+
+  if (sortedSites.length === 0) {
+    if (emptyEl) emptyEl.style.display = 'block';
+  } else {
+    if (emptyEl) emptyEl.style.display = 'none';
+  }
+
+  for (const site of sortedSites) {
+    const li = document.createElement('li');
+    li.className = 'mb-blocklist-item';
+
+    const hostSpan = document.createElement('span');
+    hostSpan.className = 'mb-blocklist-item-host';
+    hostSpan.textContent = site;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'mb-remove-btn';
+    removeBtn.textContent = 'Remove';
+    removeBtn.type = 'button';
+    removeBtn.addEventListener('click', async () => {
+      removeBtn.disabled = true;
+      removeBtn.textContent = '...';
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'REMOVE_SITE',
+          host: site
+        });
+        if (response.success) {
+          // Refresh the blocklist
+          const sitesResponse = await chrome.runtime.sendMessage({ type: 'GET_SITES' });
+          if (sitesResponse.success) {
+            renderBlocklist(sitesResponse.sites);
+          }
+        } else {
+          removeBtn.disabled = false;
+          removeBtn.textContent = 'Error';
+        }
+      } catch (error) {
+        console.error('Miniblock: Error removing site:', error);
+        removeBtn.disabled = false;
+        removeBtn.textContent = 'Error';
+      }
+    });
+
+    li.appendChild(hostSpan);
+    li.appendChild(removeBtn);
+    blocklistEl.appendChild(li);
+  }
 }
 
 /**
@@ -233,10 +481,82 @@ function showBlockScreen(blockedHost) {
   });
 
   // Handle manage blocklist link click
-  manageLink.addEventListener('click', (e) => {
+  const blocklistPanel = document.getElementById('miniblock-blocklist-panel');
+  const addSiteInput = document.getElementById('miniblock-add-site-input');
+  const addSiteBtn = document.getElementById('miniblock-add-site-btn');
+  const addSiteError = document.getElementById('miniblock-add-site-error');
+
+  manageLink.addEventListener('click', async (e) => {
     e.preventDefault();
-    // Placeholder for US-008: Will show blocklist management UI
-    console.log('Miniblock: Manage blocklist clicked');
+
+    // Toggle panel visibility
+    if (blocklistPanel.classList.contains('visible')) {
+      blocklistPanel.classList.remove('visible');
+      manageLink.textContent = 'Manage blocklist';
+    } else {
+      blocklistPanel.classList.add('visible');
+      manageLink.textContent = 'Hide blocklist';
+
+      // Load and render the blocklist
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'GET_SITES' });
+        if (response.success) {
+          renderBlocklist(response.sites);
+        }
+      } catch (error) {
+        console.error('Miniblock: Error loading blocklist:', error);
+      }
+    }
+  });
+
+  // Handle add site form
+  async function handleAddSite() {
+    const validation = validateHostInput(addSiteInput.value);
+
+    if (!validation.valid) {
+      addSiteError.textContent = validation.error;
+      return;
+    }
+
+    addSiteError.textContent = '';
+    addSiteBtn.disabled = true;
+    addSiteBtn.textContent = '...';
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'ADD_SITE',
+        host: validation.host
+      });
+
+      if (response.success) {
+        addSiteInput.value = '';
+        // Refresh the blocklist
+        const sitesResponse = await chrome.runtime.sendMessage({ type: 'GET_SITES' });
+        if (sitesResponse.success) {
+          renderBlocklist(sitesResponse.sites);
+        }
+      } else {
+        addSiteError.textContent = 'Failed to add site';
+      }
+    } catch (error) {
+      console.error('Miniblock: Error adding site:', error);
+      addSiteError.textContent = 'Failed to add site';
+    }
+
+    addSiteBtn.disabled = false;
+    addSiteBtn.textContent = 'Add';
+  }
+
+  addSiteBtn.addEventListener('click', handleAddSite);
+  addSiteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      handleAddSite();
+    }
+  });
+
+  // Clear error when typing in add site input
+  addSiteInput.addEventListener('input', () => {
+    addSiteError.textContent = '';
   });
 }
 

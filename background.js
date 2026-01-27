@@ -114,6 +114,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'Invalid tab or host' });
     }
   }
+
+  // Storage operations for content script blocklist management
+  if (message.type === 'GET_SITES') {
+    getSites().then(sites => {
+      sendResponse({ success: true, sites });
+    }).catch(error => {
+      console.error('Miniblock: Error getting sites:', error);
+      sendResponse({ success: false, error: error.message });
+    });
+  }
+
+  if (message.type === 'ADD_SITE') {
+    const host = message.host?.toLowerCase().trim();
+    if (!host) {
+      sendResponse({ success: false, error: 'Invalid host' });
+    } else {
+      addSite(host).then(success => {
+        sendResponse({ success });
+      }).catch(error => {
+        console.error('Miniblock: Error adding site:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    }
+  }
+
+  if (message.type === 'REMOVE_SITE') {
+    const host = message.host?.toLowerCase().trim();
+    if (!host) {
+      sendResponse({ success: false, error: 'Invalid host' });
+    } else {
+      removeSite(host).then(success => {
+        sendResponse({ success });
+      }).catch(error => {
+        console.error('Miniblock: Error removing site:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    }
+  }
+
   return true; // Keep message channel open for async response
 });
 
