@@ -15,7 +15,16 @@
       <div id="block-status"></div>
       <button id="block-btn" class="block-btn" style="display: none;">Block this site</button>
     </div>
-    <div id="blocklist"></div>
+    <div id="blocklist-section">
+      <h2>Blocked Sites</h2>
+      <div id="add-site-form">
+        <input type="text" id="add-site-input" placeholder="Add site (e.g., twitter.com)" autocomplete="off">
+        <button id="add-site-btn" type="button">Add</button>
+      </div>
+      <div id="add-site-error" class="error-message"></div>
+      <ul id="blocklist"></ul>
+      <div id="empty-list-message">No blocked sites yet</div>
+    </div>
   </div>
   <script src="../storage.js"></script>
   <script src="popup.js"></script>
