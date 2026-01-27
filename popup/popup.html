@@ -9,9 +9,15 @@
 <body>
   <div class="container">
     <h1>Miniblock</h1>
-    <div id="current-site"></div>
+    <div id="current-site">
+      <div id="current-host"></div>
+      <div id="host-info"></div>
+      <div id="block-status"></div>
+      <button id="block-btn" class="block-btn" style="display: none;">Block this site</button>
+    </div>
     <div id="blocklist"></div>
   </div>
+  <script src="../storage.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
