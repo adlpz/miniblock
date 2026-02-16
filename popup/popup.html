@@ -19,11 +19,30 @@
       <h2>Blocked Sites</h2>
       <div id="add-site-form">
         <input type="text" id="add-site-input" placeholder="Add site (e.g., twitter.com)" autocomplete="off">
+        <select id="add-site-mode">
+          <option value="always">Always</option>
+          <option value="scheduled">Work hours</option>
+        </select>
         <button id="add-site-btn" type="button">Add</button>
       </div>
       <div id="add-site-error" class="error-message"></div>
       <ul id="blocklist"></ul>
       <div id="empty-list-message">No blocked sites yet</div>
+    </div>
+    <div id="schedule-section">
+      <button id="schedule-toggle" class="schedule-toggle" type="button">Work hours</button>
+      <div id="schedule-panel" class="schedule-panel">
+        <div class="schedule-info">Applies Mon–Fri only</div>
+        <div class="schedule-add-form">
+          <input type="time" id="window-start" class="time-input">
+          <span class="time-separator">to</span>
+          <input type="time" id="window-end" class="time-input">
+          <button id="add-window-btn" type="button" class="add-window-btn">Add</button>
+        </div>
+        <div id="schedule-error" class="error-message"></div>
+        <ul id="schedule-list" class="schedule-list"></ul>
+        <div id="schedule-empty" class="schedule-empty">No schedule set</div>
+      </div>
     </div>
   </div>
   <script src="../storage.js"></script>

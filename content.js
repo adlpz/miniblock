@@ -14,6 +14,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /**
+ * Get display label for a mode
+ * @param {string} mode
+ * @returns {string}
+ */
+function getModeLabel(mode) {
+  return mode === 'scheduled' ? 'work hours' : 'always';
+}
+
+/**
  * Generate the CSS styles for the block screen
  * Uses CSS variables for dark/light mode support via prefers-color-scheme
  * @returns {string} CSS styles
@@ -245,6 +254,43 @@ function getBlockScreenStyles() {
       word-break: break-all;
     }
 
+    #miniblock-screen .mb-blocklist-item-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+
+    #miniblock-screen .mb-mode-badge {
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    #miniblock-screen .mb-mode-badge:hover {
+      opacity: 0.8;
+    }
+
+    #miniblock-screen .mb-mode-badge:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #miniblock-screen .mb-mode-always {
+      background: #e53935;
+      color: #fff;
+    }
+
+    #miniblock-screen .mb-mode-scheduled {
+      background: #fb8c00;
+      color: #fff;
+    }
+
     #miniblock-screen .mb-remove-btn {
       padding: 4px 10px;
       font-size: 12px;
@@ -256,7 +302,6 @@ function getBlockScreenStyles() {
       color: var(--mb-text-muted);
       transition: background 0.15s, color 0.15s;
       flex-shrink: 0;
-      margin-left: 8px;
     }
 
     #miniblock-screen .mb-remove-btn:hover {
@@ -390,7 +435,7 @@ function validateHostInput(input) {
 
 /**
  * Render the blocklist in the panel
- * @param {string[]} sites - Array of blocked hosts
+ * @param {Array<{host: string, mode: string}>} sites - Array of blocked site entries
  */
 function renderBlocklist(sites) {
   const blocklistEl = document.getElementById('miniblock-blocklist');
@@ -400,8 +445,8 @@ function renderBlocklist(sites) {
 
   blocklistEl.innerHTML = '';
 
-  // Sort sites alphabetically
-  const sortedSites = [...sites].sort((a, b) => a.localeCompare(b));
+  // Sort sites alphabetically by host
+  const sortedSites = [...sites].sort((a, b) => a.host.localeCompare(b.host));
 
   if (sortedSites.length === 0) {
     if (emptyEl) emptyEl.style.display = 'block';
@@ -409,13 +454,44 @@ function renderBlocklist(sites) {
     if (emptyEl) emptyEl.style.display = 'none';
   }
 
-  for (const site of sortedSites) {
+  for (const entry of sortedSites) {
     const li = document.createElement('li');
     li.className = 'mb-blocklist-item';
 
     const hostSpan = document.createElement('span');
     hostSpan.className = 'mb-blocklist-item-host';
-    hostSpan.textContent = site;
+    hostSpan.textContent = entry.host;
+
+    const controls = document.createElement('span');
+    controls.className = 'mb-blocklist-item-controls';
+
+    const modeBadge = document.createElement('button');
+    modeBadge.className = `mb-mode-badge mb-mode-${entry.mode}`;
+    modeBadge.textContent = getModeLabel(entry.mode);
+    modeBadge.type = 'button';
+    modeBadge.title = `Click to switch to ${entry.mode === 'always' ? 'work hours' : 'always'}`;
+    modeBadge.addEventListener('click', async () => {
+      const newMode = entry.mode === 'always' ? 'scheduled' : 'always';
+      modeBadge.disabled = true;
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'UPDATE_SITE_MODE',
+          host: entry.host,
+          mode: newMode
+        });
+        if (response.success) {
+          const sitesResponse = await chrome.runtime.sendMessage({ type: 'GET_SITES' });
+          if (sitesResponse.success) {
+            renderBlocklist(sitesResponse.sites);
+          }
+        } else {
+          modeBadge.disabled = false;
+        }
+      } catch (error) {
+        console.error('Miniblock: Error updating site mode:', error);
+        modeBadge.disabled = false;
+      }
+    });
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'mb-remove-btn';
@@ -427,7 +503,7 @@ function renderBlocklist(sites) {
       try {
         const response = await chrome.runtime.sendMessage({
           type: 'REMOVE_SITE',
-          host: site
+          host: entry.host
         });
         if (response.success) {
           // Refresh the blocklist
@@ -446,8 +522,10 @@ function renderBlocklist(sites) {
       }
     });
 
+    controls.appendChild(modeBadge);
+    controls.appendChild(removeBtn);
     li.appendChild(hostSpan);
-    li.appendChild(removeBtn);
+    li.appendChild(controls);
     blocklistEl.appendChild(li);
   }
 }
@@ -549,7 +627,8 @@ function showBlockScreen(blockedHost) {
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'ADD_SITE',
-        host: validation.host
+        host: validation.host,
+        mode: 'always'
       });
 
       if (response.success) {

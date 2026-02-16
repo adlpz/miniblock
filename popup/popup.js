@@ -2,31 +2,31 @@
 // Handles popup UI interactions
 
 /**
- * Check if a host matches any blocked host using smart subdomain matching.
- * Returns the blocked host that matches, or null if not blocked.
+ * Check if a host matches any blocked site entry using smart subdomain matching.
+ * Returns the matching entry object, or null if not blocked.
  * @param {string} host - The host to check
- * @param {string[]} blockedHosts - Array of blocked hosts
- * @returns {string|null} The matching blocked host or null
+ * @param {Array<{host: string, mode: string}>} siteEntries - Array of blocked site entries
+ * @returns {{host: string, mode: string}|null} The matching entry or null
  */
-function getMatchingBlockedHost(host, blockedHosts) {
-  if (!host || !blockedHosts || blockedHosts.length === 0) {
+function getMatchingBlockedHost(host, siteEntries) {
+  if (!host || !siteEntries || siteEntries.length === 0) {
     return null;
   }
 
   const normalizedHost = host.toLowerCase().trim();
 
-  for (const blockedHost of blockedHosts) {
-    const normalizedBlocked = blockedHost.toLowerCase().trim();
+  for (const entry of siteEntries) {
+    const normalizedBlocked = entry.host.toLowerCase().trim();
 
     // Exact match
     if (normalizedHost === normalizedBlocked) {
-      return normalizedBlocked;
+      return entry;
     }
 
     // Subdomain match: if blocked host is "twitter.com",
     // then "mobile.twitter.com" should be blocked
     if (normalizedHost.endsWith('.' + normalizedBlocked)) {
-      return normalizedBlocked;
+      return entry;
     }
   }
 
@@ -92,23 +92,52 @@ function validateHostInput(input) {
 }
 
 /**
+ * Get display label for a mode
+ * @param {string} mode
+ * @returns {string}
+ */
+function getModeLabel(mode) {
+  return mode === 'scheduled' ? 'work hours' : 'always';
+}
+
+/**
  * Render the blocklist in the popup
- * @param {string[]} sites - Array of blocked hosts
+ * @param {Array<{host: string, mode: string}>} sites - Array of blocked site entries
  */
 function renderBlocklist(sites) {
   const blocklistEl = document.getElementById('blocklist');
   blocklistEl.innerHTML = '';
 
-  // Sort sites alphabetically for consistent display
-  const sortedSites = [...sites].sort((a, b) => a.localeCompare(b));
+  // Sort sites alphabetically by host
+  const sortedSites = [...sites].sort((a, b) => a.host.localeCompare(b.host));
 
-  for (const site of sortedSites) {
+  for (const entry of sortedSites) {
     const li = document.createElement('li');
     li.className = 'blocklist-item';
 
     const hostSpan = document.createElement('span');
     hostSpan.className = 'blocklist-item-host';
-    hostSpan.textContent = site;
+    hostSpan.textContent = entry.host;
+
+    const controls = document.createElement('span');
+    controls.className = 'blocklist-item-controls';
+
+    const modeBadge = document.createElement('button');
+    modeBadge.className = `mode-badge mode-${entry.mode}`;
+    modeBadge.textContent = getModeLabel(entry.mode);
+    modeBadge.type = 'button';
+    modeBadge.title = `Click to switch to ${entry.mode === 'always' ? 'work hours' : 'always'}`;
+    modeBadge.addEventListener('click', async () => {
+      const newMode = entry.mode === 'always' ? 'scheduled' : 'always';
+      modeBadge.disabled = true;
+      const success = await updateSiteMode(entry.host, newMode);
+      if (success) {
+        const updatedSites = await getSites();
+        renderBlocklist(updatedSites);
+      } else {
+        modeBadge.disabled = false;
+      }
+    });
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
@@ -117,7 +146,7 @@ function renderBlocklist(sites) {
     removeBtn.addEventListener('click', async () => {
       removeBtn.disabled = true;
       removeBtn.textContent = '...';
-      const success = await removeSite(site);
+      const success = await removeSite(entry.host);
       if (success) {
         // Refresh the list
         const updatedSites = await getSites();
@@ -130,9 +159,60 @@ function renderBlocklist(sites) {
       }
     });
 
+    controls.appendChild(modeBadge);
+    controls.appendChild(removeBtn);
     li.appendChild(hostSpan);
-    li.appendChild(removeBtn);
+    li.appendChild(controls);
     blocklistEl.appendChild(li);
+  }
+}
+
+/**
+ * Render the schedule windows UI
+ * @param {{windows: Array<{start: string, end: string}>}} schedule
+ */
+function renderSchedule(schedule) {
+  const listEl = document.getElementById('schedule-list');
+  const emptyEl = document.getElementById('schedule-empty');
+  listEl.innerHTML = '';
+
+  if (schedule.windows.length === 0) {
+    emptyEl.style.display = 'block';
+  } else {
+    emptyEl.style.display = 'none';
+  }
+
+  // Sort windows by start time
+  const sorted = [...schedule.windows].sort((a, b) => a.start.localeCompare(b.start));
+
+  for (const w of sorted) {
+    const li = document.createElement('li');
+    li.className = 'schedule-item';
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'schedule-item-time';
+    timeSpan.textContent = `${w.start} – ${w.end}`;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = 'Remove';
+    removeBtn.type = 'button';
+    removeBtn.addEventListener('click', async () => {
+      removeBtn.disabled = true;
+      removeBtn.textContent = '...';
+      const updated = { windows: schedule.windows.filter(x => x.start !== w.start || x.end !== w.end) };
+      const success = await setSchedule(updated);
+      if (success) {
+        renderSchedule(updated);
+      } else {
+        removeBtn.disabled = false;
+        removeBtn.textContent = 'Error';
+      }
+    });
+
+    li.appendChild(timeSpan);
+    li.appendChild(removeBtn);
+    listEl.appendChild(li);
   }
 }
 
@@ -149,11 +229,13 @@ async function refreshCurrentSiteStatus() {
   const blockStatusEl = document.getElementById('block-status');
   const blockBtn = document.getElementById('block-btn');
 
-  const blockedHosts = await getSites();
-  const matchingBlockedHost = getMatchingBlockedHost(currentHost, blockedHosts);
+  const siteEntries = await getSites();
+  const matchingEntry = getMatchingBlockedHost(currentHost, siteEntries);
 
-  if (matchingBlockedHost) {
-    blockStatusEl.textContent = `Currently blocked${matchingBlockedHost !== currentHost ? ` (via ${matchingBlockedHost})` : ''}`;
+  if (matchingEntry) {
+    const modeText = matchingEntry.mode === 'scheduled' ? 'Blocked during work hours' : 'Currently blocked';
+    const viaText = matchingEntry.host !== currentHost ? ` (via ${matchingEntry.host})` : '';
+    blockStatusEl.textContent = `${modeText}${viaText}`;
     blockStatusEl.className = 'blocked';
     blockBtn.style.display = 'none';
   } else {
@@ -174,10 +256,70 @@ document.addEventListener('DOMContentLoaded', async () => {
   const addSiteInput = document.getElementById('add-site-input');
   const addSiteBtn = document.getElementById('add-site-btn');
   const addSiteError = document.getElementById('add-site-error');
+  const addSiteModeSelect = document.getElementById('add-site-mode');
 
   // Load and render blocklist
-  const blockedHosts = await getSites();
-  renderBlocklist(blockedHosts);
+  const siteEntries = await getSites();
+  renderBlocklist(siteEntries);
+
+  // Load and render schedule
+  const schedule = await getSchedule();
+  renderSchedule(schedule);
+
+  // Set up schedule panel toggle
+  const scheduleToggle = document.getElementById('schedule-toggle');
+  const schedulePanel = document.getElementById('schedule-panel');
+  scheduleToggle.addEventListener('click', () => {
+    const expanded = schedulePanel.classList.toggle('visible');
+    scheduleToggle.classList.toggle('expanded', expanded);
+  });
+
+  // Set up add window form
+  const addWindowBtn = document.getElementById('add-window-btn');
+  const windowStartInput = document.getElementById('window-start');
+  const windowEndInput = document.getElementById('window-end');
+  const scheduleError = document.getElementById('schedule-error');
+
+  addWindowBtn.addEventListener('click', async () => {
+    const start = windowStartInput.value;
+    const end = windowEndInput.value;
+
+    const validation = validateScheduleWindow(start, end);
+    if (!validation.valid) {
+      scheduleError.textContent = validation.error;
+      return;
+    }
+
+    const currentSchedule = await getSchedule();
+    const newWindow = { start, end };
+
+    if (hasOverlap(currentSchedule.windows, newWindow)) {
+      scheduleError.textContent = 'Overlaps with existing window';
+      return;
+    }
+
+    scheduleError.textContent = '';
+    addWindowBtn.disabled = true;
+    addWindowBtn.textContent = '...';
+
+    const updated = { windows: [...currentSchedule.windows, newWindow] };
+    const success = await setSchedule(updated);
+
+    if (success) {
+      windowStartInput.value = '';
+      windowEndInput.value = '';
+      renderSchedule(updated);
+    } else {
+      scheduleError.textContent = 'Failed to save';
+    }
+
+    addWindowBtn.disabled = false;
+    addWindowBtn.textContent = 'Add';
+  });
+
+  // Clear schedule error on input change
+  windowStartInput.addEventListener('input', () => { scheduleError.textContent = ''; });
+  windowEndInput.addEventListener('input', () => { scheduleError.textContent = ''; });
 
   // Set up add site form
   async function handleAddSite() {
@@ -192,7 +334,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     addSiteBtn.disabled = true;
     addSiteBtn.textContent = '...';
 
-    const success = await addSite(validation.host);
+    const mode = addSiteModeSelect.value;
+    const success = await addSite(validation.host, mode);
 
     if (success) {
       addSiteInput.value = '';
@@ -265,11 +408,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Check if this site (or its root domain) is already blocked
-  const matchingBlockedHost = getMatchingBlockedHost(host, blockedHosts);
+  const matchingEntry = getMatchingBlockedHost(host, siteEntries);
 
-  if (matchingBlockedHost) {
+  if (matchingEntry) {
     // Site is blocked
-    blockStatusEl.textContent = `Currently blocked${matchingBlockedHost !== host ? ` (via ${matchingBlockedHost})` : ''}`;
+    const modeText = matchingEntry.mode === 'scheduled' ? 'Blocked during work hours' : 'Currently blocked';
+    const viaText = matchingEntry.host !== host ? ` (via ${matchingEntry.host})` : '';
+    blockStatusEl.textContent = `${modeText}${viaText}`;
     blockStatusEl.className = 'blocked';
     blockBtn.style.display = 'none';
   } else {

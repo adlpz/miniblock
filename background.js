@@ -11,15 +11,47 @@ console.log('Miniblock background service worker loaded');
 const tabBypasses = new Map();
 
 /**
- * Check if a URL's host matches any blocked host using smart subdomain matching.
+ * Check if the schedule is currently active (weekday + within any window)
+ * @param {{windows: Array<{start: string, end: string}>}} schedule
+ * @returns {boolean}
+ */
+function isScheduleActive(schedule) {
+  if (!schedule || !schedule.windows || schedule.windows.length === 0) {
+    return false;
+  }
+
+  const now = new Date();
+  const day = now.getDay();
+
+  // Weekdays only (Mon=1 through Fri=5)
+  if (day === 0 || day === 6) {
+    return false;
+  }
+
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const currentTime = `${hours}:${minutes}`;
+
+  for (const w of schedule.windows) {
+    if (currentTime >= w.start && currentTime < w.end) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a URL's host matches any blocked site entry using smart subdomain matching.
  * - If blocklist contains "twitter.com", it blocks twitter.com and all subdomains (mobile.twitter.com)
  * - If blocklist contains "mail.google.com", it only blocks mail.google.com (not google.com or other subdomains)
  * @param {string} urlString - The URL to check
- * @param {string[]} blockedHosts - Array of blocked hosts
+ * @param {Array<{host: string, mode: string}>} siteEntries - Array of blocked site entries
+ * @param {{windows: Array<{start: string, end: string}>}} schedule - The schedule
  * @returns {string|null} The blocked host that matched, or null if not blocked
  */
-function isBlocked(urlString, blockedHosts) {
-  if (!urlString || !blockedHosts || blockedHosts.length === 0) {
+function isBlocked(urlString, siteEntries, schedule) {
+  if (!urlString || !siteEntries || siteEntries.length === 0) {
     return null;
   }
 
@@ -31,19 +63,30 @@ function isBlocked(urlString, blockedHosts) {
     return null;
   }
 
-  for (const blockedHost of blockedHosts) {
-    const normalizedBlocked = blockedHost.toLowerCase().trim();
+  for (const entry of siteEntries) {
+    const normalizedBlocked = entry.host.toLowerCase().trim();
+    let matches = false;
 
     // Exact match
     if (host === normalizedBlocked) {
-      return normalizedBlocked;
+      matches = true;
     }
 
     // Subdomain match: if blocked host is "twitter.com",
     // then "mobile.twitter.com" should be blocked
-    // Check if host ends with ".blockedHost"
-    if (host.endsWith('.' + normalizedBlocked)) {
-      return normalizedBlocked;
+    if (!matches && host.endsWith('.' + normalizedBlocked)) {
+      matches = true;
+    }
+
+    if (matches) {
+      // "always" → always blocked
+      if (entry.mode === 'always') {
+        return normalizedBlocked;
+      }
+      // "scheduled" → blocked only when schedule is active
+      if (entry.mode === 'scheduled' && isScheduleActive(schedule)) {
+        return normalizedBlocked;
+      }
     }
   }
 
@@ -63,8 +106,9 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   }
 
   try {
-    const blockedHosts = await getSites();
-    const matchedHost = isBlocked(details.url, blockedHosts);
+    const siteEntries = await getSites();
+    const schedule = await getSchedule();
+    const matchedHost = isBlocked(details.url, siteEntries, schedule);
 
     if (matchedHost) {
       // Check if this tab has an active bypass for this host
@@ -127,10 +171,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'ADD_SITE') {
     const host = message.host?.toLowerCase().trim();
+    const mode = message.mode || 'always';
     if (!host) {
       sendResponse({ success: false, error: 'Invalid host' });
     } else {
-      addSite(host).then(success => {
+      addSite(host, mode).then(success => {
         sendResponse({ success });
       }).catch(error => {
         console.error('Miniblock: Error adding site:', error);
@@ -148,6 +193,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success });
       }).catch(error => {
         console.error('Miniblock: Error removing site:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    }
+  }
+
+  if (message.type === 'UPDATE_SITE_MODE') {
+    const host = message.host?.toLowerCase().trim();
+    const mode = message.mode;
+    if (!host || !mode) {
+      sendResponse({ success: false, error: 'Invalid host or mode' });
+    } else {
+      updateSiteMode(host, mode).then(success => {
+        sendResponse({ success });
+      }).catch(error => {
+        console.error('Miniblock: Error updating site mode:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    }
+  }
+
+  if (message.type === 'GET_SCHEDULE') {
+    getSchedule().then(schedule => {
+      sendResponse({ success: true, schedule });
+    }).catch(error => {
+      console.error('Miniblock: Error getting schedule:', error);
+      sendResponse({ success: false, error: error.message });
+    });
+  }
+
+  if (message.type === 'SET_SCHEDULE') {
+    const schedule = message.schedule;
+    if (!schedule) {
+      sendResponse({ success: false, error: 'Invalid schedule' });
+    } else {
+      setSchedule(schedule).then(success => {
+        sendResponse({ success });
+      }).catch(error => {
+        console.error('Miniblock: Error setting schedule:', error);
         sendResponse({ success: false, error: error.message });
       });
     }
@@ -210,3 +293,4 @@ function hasActiveBypass(tabId, host) {
 
 // Export isBlocked for potential use by other parts of the extension
 self.isBlocked = isBlocked;
+self.isScheduleActive = isScheduleActive;
